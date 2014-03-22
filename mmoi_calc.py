@@ -4,6 +4,7 @@ Command line utility to calculate moments of inertia of a molecule described
 by a "connection table" (found in .mol and .sdf files).
 """
 
+from __future__ import print_function
 import argparse
 
 import numpy
@@ -26,12 +27,12 @@ def main():
         molecule = ctab.Parser().molfile(molfile)
 
     numpy.set_printoptions(precision=2, suppress=True)
-    print "Molecule: {}".format(molecule)
+    print("Molecule: {}".format(molecule))
     if args.principal_axes:
-        print "Principal moments of inertia: {}\nPrincipal axes:\n{}".format(
-            *molecule.inertia(moments_only=False))
+        print("Principal moments of inertia: {}\nPrincipal axes:\n{}".format(
+            *molecule.inertia(moments_only=False)))
     else:
-        print "Principal moments of inertia: {}".format(molecule.inertia())
+        print("Principal moments of inertia: {}".format(molecule.inertia()))
 
 
 if __name__ == "__main__":

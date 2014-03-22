@@ -9,8 +9,8 @@ TODO: Currently only processes the atoms block.
 import logging
 import re
 
-from elements import ELEMENTS
 import numpy
+from .elements import ELEMENTS
 
 
 # Connection table header (for the legacy V2000 format).

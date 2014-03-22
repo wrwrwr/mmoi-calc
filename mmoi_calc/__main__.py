@@ -9,7 +9,7 @@ import argparse
 
 import numpy
 
-import ctab
+from . import ctab
 
 
 def main():

@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+"""
+Rudimentary parser and data structures that can represent a "connection table"
+(contained in some .mol, .sdf and other files).
+
+TODO: Currently only processes the atoms block.
+"""
+
 import logging
 import re
 
@@ -8,7 +15,7 @@ import numpy
 
 # Connection table header (for the legacy V2000 format).
 # Reference: http://download.accelrys.com/freeware/ctfile-formats/.
-v2_counts = re.compile(r'''\s*
+V2_COUNTS = re.compile(r'''\s*
     (?P<atoms>\d+)\s+             # Number of atoms.
     (?P<bonds>\d+)\s+             # Number of bond lines.
     (?P<lists>\d+)\s+             # Number of atom lists.
@@ -21,7 +28,7 @@ v2_counts = re.compile(r'''\s*
 ''', re.VERBOSE)
 
 # Atom line of the legacy connection table.
-v2_atom = re.compile(r'''\s*
+V2_ATOM = re.compile(r'''\s*
     (?P<x>-?\d+(?:\.\d+)?)\s+     # X coordinate.
     (?P<y>-?\d+(?:\.\d+)?)\s+     # Y coordinate.
     (?P<z>-?\d+(?:\.\d+)?)\s+     # Z coordinate (resulting bond lengths look
@@ -53,60 +60,67 @@ v2_atom = re.compile(r'''\s*
 
 
 class Atom:
+    """
+    A line in the "atoms" block"
+    """
     def __init__(self, match):
         """
         Atom object from a regex match.
-        
+
         Drops in element data under ``element`` property and
         sets ``mass`` taking into account mass difference data.
-        
+
         TODO: Additional properties may also include mass modifications.
         """
         self.symbol = match.group('symbol')
         self.element = ELEMENTS[self.symbol]
         self.coords = numpy.array(match.group('x', 'y', 'z'), dtype=float)
         self.mass = self.element.mass + int(match.group('mass'))
-        
+
     def __str__(self):
         return self.symbol
 
     def __repr__(self):
         return "{} {}".format(self.symbol, self.coords)
-        
-        
+
+
 class Molecule:
+    """
+    Collects all information from a "connection table" (which does not need to
+    actually describe a molecule, but some more general atoms collection).
+    """
     def __init__(self, atoms):
         """
         Molecule object from atoms and bonds data.
         """
         self.atoms = atoms
         self.mass = sum(a.mass for a in atoms)
-        
+
     def center_of_mass(self):
         """
         Calculates the molecule's center of mass (in data coordinates).
         """
         return sum(a.mass * a.coords for a in self.atoms) / self.mass
-        
+
     def inertia(self, principal=True, moments_only=True):
         """
         Calculates the moments of inertia of the molecule (Dalton Angstrom^2).
-        
-        With ``pricipal`` set to false returns inertia matrix in the data
+
+        With ``principal`` set to false returns inertia matrix in the data
         coordinates (with non-zero products of inertia), with ``moments_only``
         set to false, returns principal moments and axes (as matrix columns).
-        
+
         See: https://en.wikipedia.org/wiki/Moment_of_inertia
             #The_inertia_matrix_for_spatial_movement_of_a_rigid_body
         """
-        com = self.center_of_mass()
+        center_of_mass = self.center_of_mass()
         inertia = numpy.zeros((3, 3))
         for atom in self.atoms:
-            r = atom.coords - com
+            cmx, cmy, cmz = atom.coords - center_of_mass
             inertia += - atom.mass * numpy.matrix(
-                [[ 0,   -r[2], r[1]],
-                 [ r[2], 0,   -r[0]],
-                 [-r[1], r[0], 0   ]])**2
+                [[ 0,   -cmz,  cmy],
+                 [ cmz,  0,   -cmx],
+                 [-cmy,  cmx,  0  ]])**2
         if principal:
             # TODO: SciPy has an ``eigvals_only`` argument to eigh.
             if moments_only:
@@ -115,7 +129,7 @@ class Molecule:
                 return numpy.linalg.eigh(inertia)
         else:
             return inertia
-            
+
     def __str__(self):
         return ' '.join(str(a) for a in self.atoms)
 
@@ -124,34 +138,44 @@ class Molecule:
 
 
 class ParseError(Exception):
-    """Signals a critical parsing failure."""
+    """
+    Signals a critical parsing failure.
+    """
     pass
 
-        
+
 class Parser:
-    def molfile(self, file):
+    """
+    Can produce a ``Molecule`` from a file containing a "connection table".
+    """
+    def __init__(self):
+        # TODO: Some parser configuration?
+        pass
+
+    def molfile(self, lines):
         """
         Takes a file containing a V2000 ctab and returns a ``Molecule``.
-        
-        Argument should be an open ``File`` object (or anything implementing 
-        the same interface like a ``StringIO``).
+
+        The ``lines`` argument may be a list, an open ``file`` object or
+        anything else that can be iterated in a line-wise fashion (like a
+        ``StringIO``).
         """
         # Find the "counts" line.
-        for line in file:
-            counts = v2_counts.match(line)
+        for line in lines:
+            counts = V2_COUNTS.match(line)
             if counts:
                 break
         else:
             raise ParseError("Couldn't find the ctab header; "
                              "is this a V2000 file?")
-            
+
         # Parse atoms data (assumed to follow).
         atoms_count = int(counts.group('atoms'))
         atoms = []
-        for line in file:
-            atom = v2_atom.match(line)
+        for line in lines:
+            atom = V2_ATOM.match(line)
             if not atom:
-                logging.warn("Couldn't parse atom line: {}.", line)
+                logging.warn("Couldn't parse atom line: {}.".format(line))
             else:
                 atoms.append(Atom(atom))
             if len(atoms) == atoms_count:
@@ -160,7 +184,5 @@ class Parser:
             logging.warn("More atoms declared than could be parsed (counts: "
                          "{}, found: {}).".format(atoms_count, len(atoms)))
         logging.info("Atoms: {}.".format(atoms))
-        
-        # TODO: Parse bonds etc.
-        
+
         return Molecule(atoms)

@@ -1,0 +1,16 @@
+[MASTER]
+
+ignore=elements.py
+
+
+[MESSAGES CONTROL]
+
+# I like this magic.
+disable=W0142
+
+
+[REPORTS]
+
+output-format=colorized
+include-ids=yes
+reports=no

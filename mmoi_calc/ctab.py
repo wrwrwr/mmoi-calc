@@ -71,7 +71,7 @@ V2_ATOM = re.compile(r'''
 
 class Atom:
     """
-    A line in the "atoms" block"
+    A line in the "atoms" block."
     """
     def __init__(self, match):
         """

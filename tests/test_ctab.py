@@ -5,7 +5,7 @@ import unittest
 from mmoi_calc import ctab
 
 
-# All entries with zeros.
+# Most entries zero.
 CO2_CTAB_1 = '''
   3  0  0  0  0  0  0  0  0  0999 V2000
     0.0000    0.0000    0.0000 C  0 0  0  0  0  0  0  0  0  0  0  0  0
@@ -13,15 +13,13 @@ CO2_CTAB_1 = '''
    -1.1600    0.0000    0.0000 O  0 0  0  0  0  0  0  0  0  0  0  0  0
 '''
 
-# Spaces can also be used instead of zeros or for missing entries.
-# The st
+# Spaces can be used for missing or zero entries.
 CO2_CTAB_2 = '''
   3                               V2000
     0.0000    0.0000    0.0000 C                                     1
     1.1600    0.0000    0.0000 O                                     1
    -1.1600    0.0000    0.0000 O                                     1
 '''
-
 
 
 class TestParser(unittest.TestCase):

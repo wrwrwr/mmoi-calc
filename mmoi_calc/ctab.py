@@ -13,50 +13,60 @@ import numpy
 from .elements import ELEMENTS
 
 
-# Connection table header (for the legacy V2000 format).
+# Connection table (for the legacy V2000 format).
 # Reference: http://download.accelrys.com/freeware/ctfile-formats/.
-V2_COUNTS = re.compile(r'''\s*
-    (?P<atoms>\d+)\s+             # Number of atoms.
-    (?P<bonds>\d+)\s+             # Number of bond lines.
-    (?P<lists>\d+)\s+             # Number of atom lists.
-    \d+\s+                        # Obsolete.
-    (?P<chiral>[01])\s+           # Chirality flag (1 = chiral).
-    (?P<stexts>\d+)\s+            # Structural text lines.
-    (?:\d+\s+){,4}                # Obsolete x4.
-    (?P<props>\d+)\s+             # Number of additional property lines.
-    V2000\s*                      # Version identifier.
-''', re.VERBOSE)
+# Note: The v2 format seems to be designed with fixed position splitting
+#       in mind, admittedly using regular expressions is an overshot.
+V2_TYPES = {
+    'int2': r'(?=\ *-?\d*\ *)[-\d ]{2}',
+    'int3': r'(?=\ *-?\d*\ *)[-\d ]{3}',
+    'real': r'(?=\ *-?\d*\.?\d*\ *)[-.\d ]{10}',
+    'bool': r'(?=\ *[01 ]\ *)[01 ]{3}'}
 
-# Atom line of the legacy connection table.
-V2_ATOM = re.compile(r'''\s*
-    (?P<x>-?\d+(?:\.\d+)?)\s+     # X coordinate.
-    (?P<y>-?\d+(?:\.\d+)?)\s+     # Y coordinate.
-    (?P<z>-?\d+(?:\.\d+)?)\s+     # Z coordinate (resulting bond lengths look
-                                  # like in Angstroms, but that doesn't seem
-                                  # to be documented anywhere).
-    (?P<symbol>\w+|R\#\w+|\*)\s+  # Atom symbol, group label or
+# Connection table header, specifies counts of lines in following blocks.
+# aaabbblllfffcccsssxxxrrrpppiiimmmvvvvvv
+V2_COUNTS = re.compile(r'''
+    (?P<atoms>{int3})             # Number of atoms.
+    (?P<bonds>{int3})             # Number of bond lines.
+    (?P<lists>{int3})             # Number of atom lists.
+    .{{3}}                        # Obsolete.
+    (?P<chiral>{bool})            # Chirality flag (1 = chiral).
+    (?P<stexts>{int3})            # Structural text lines.
+    .{{12}}                       # Obsolete x4.
+    (?P<props>{int3})             # Number of additional property lines.
+    \ ?[vV]2000\s*                # Version identifier.
+'''.format(**V2_TYPES), re.VERBOSE)
+
+# A single atom line of the legacy connection table.
+# xxxxx.xxxxyyyyy.yyyyzzzzz.zzzz aaaddcccssshhhbbbvvvHHHrrriiimmmnnneee
+V2_ATOM = re.compile(r'''
+    (?P<x>{real})                 # Coordinates (resulting bond lengths look
+    (?P<y>{real})                 # like in Angstroms, but that doesn't seem
+    (?P<z>{real})                 # to be documented anywhere). Also note the
+    \                             # space separating further entries.
+    (?P<symbol>[\w\d* ]{{3}})     # Atom symbol, group label or
                                   # query -- L, A, Q, LP or *.
-    (?P<mass>-?\d+)\s+            # Difference from mass in the periodic
+    (?P<mass_diff>{int2})         # Difference from mass in the periodic
                                   # table; should be within the -3..4 range.
-    (?P<charge>[0..7])\s+         # Charge (1 = +3, 2 = +2, 3 = +1, 4 = double
+    (?P<charge>{int3})            # Charge (1 = +3, 2 = +2, 3 = +1, 4 = double
                                   # radical, 5 = -1, 6 = -2, 7 = -3).
-    (?P<stereo>[0..3])\s+         # Stereo parity (1 = odd, 2 = even,
+    (?P<stereo>{int3})            # Stereo parity (1 = odd, 2 = even,
                                   # 3 = either or unmarked center).
-    (?P<hydrogen>[0..5])\s+       # Hydrogen count (in excess of explicit;
+    (?P<hydrogen>{int3})          # Hydrogen count (in excess of explicit;
                                   # queries only).
-    (?P<stereo_care>[01])\s+      # Whether to consider stereo for double
+    (?P<stereo_care>{bool})       # Whether to consider stereo for double
                                   # bonds (1 = match; queries only).
-    (?P<valence>\d+)\s+           # Number of bonds including implied
+    (?P<valence>{int3})           # Number of bonds including implied
                                   # hydrogens (0 = default, 15 = 0).
-    (?P<no_hydrogen>[01])\s+      # Legacy zero additional hydrogen designator
+    (?P<no_hydrogen>{bool})       # Legacy zero additional hydrogen designator
                                   # (1 = no hydrogen allowed).
-    \d+\s+\d+\s+                  # Unused x2.
-    (?P<atom_atom>\d+)\s+         # Atom-atom mapping number (reactions only).
-    (?P<conf>[0..2])\s+           # Inversion / retention flag (1 = inverted,
+    .{{6}}                        # Unused x2.
+    (?P<atom_atom>{int3})         # Atom-atom mapping number (reactions only).
+    (?P<conf>{int3})              # Inversion / retention flag (1 = inverted,
                                   # 2 = retained; reactions only).
-    (?P<exact>[01])\s*            # Exact change flag (1 = changes must be
+    (?P<exact>{bool})\s*          # Exact change flag (1 = changes must be
                                   # exact).
-''', re.VERBOSE)
+'''.format(**V2_TYPES), re.VERBOSE)
 
 
 class Atom:
@@ -68,14 +78,17 @@ class Atom:
         Atom object from a regex match.
 
         Drops in element data under ``element`` property and
-        sets ``mass`` taking into account mass difference data.
+        sets ``mass`` taking into account mass difference entry.
 
         TODO: Additional properties may also include mass modifications.
         """
-        self.symbol = match.group('symbol')
+        self.symbol = match.group('symbol').strip()
         self.element = ELEMENTS[self.symbol]
         self.coords = numpy.array(match.group('x', 'y', 'z'), dtype=float)
-        self.mass = self.element.mass + int(match.group('mass'))
+        mass_difference = match.group('mass_diff').strip()
+        if mass_difference == '':
+            mass_difference = 0
+        self.mass = self.element.mass + int(mass_difference)
 
     def __str__(self):
         return self.symbol
